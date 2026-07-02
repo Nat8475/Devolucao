@@ -45,7 +45,7 @@ create table return_reasons (
 -- returns
 create table returns (
   id uuid primary key default gen_random_uuid(),
-  nf text not null,
+  nf text,   -- nullable: rascunho cobre o caso "XML da NF-e ainda não chegou" (seção 3.9 do plano)
   nfd text,
   supplier_id uuid not null references suppliers(id),
   type text not null check (type in ('avaria','falta','rejeicao')),
@@ -108,7 +108,7 @@ Nota: `pendente -> em_transferencia` é incluído na tabela de transições já 
 
 | Função | Efeito |
 |---|---|
-| `fn_confirmar_rascunho(id uuid)` | Revalida `nf`/`nfd` obrigatórios + duplicata, muda `rascunho → pendente` |
+| `fn_confirmar_rascunho(id uuid)` | Exige `nf` preenchido (raise exception se null), revalida duplicata, muda `rascunho → pendente` |
 | `fn_dar_baixa_venda(ids uuid[])` | `UPDATE returns SET status='venda' WHERE id = ANY(ids) AND status='pendente' RETURNING id` — retorna afetados vs ignorados (padrão de concorrência da seção 3 do plano) |
 | `fn_reabrir(ids uuid[], motivo text)` | `UPDATE returns SET status='pendente', motivo_detalhe=motivo WHERE id = ANY(ids) AND status IN ('devolvido','venda') RETURNING id` |
 | `fn_excluir(id uuid, motivo text)` | Só se `status='pendente'`: insere snapshot em `trash`, deleta a linha de `returns` — transação única |
