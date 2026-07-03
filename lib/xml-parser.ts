@@ -31,6 +31,11 @@ export function parseNFeXml(xmlString: string): ParsedNFe {
 
   const qtd = parseFloat(qCom);
   const valorUnitario = parseFloat(vUnCom);
+  const valorTotal = vNF ? parseFloat(vNF) : qtd * valorUnitario;
+
+  if (Number.isNaN(qtd) || Number.isNaN(valorUnitario) || Number.isNaN(valorTotal)) {
+    throw new Error('XML da NF-e contém valores numéricos inválidos.');
+  }
 
   return {
     nf: nNF,
@@ -38,6 +43,6 @@ export function parseNFeXml(xmlString: string): ParsedNFe {
     descricao: xProd,
     qtd,
     valorUnitario,
-    valorTotal: vNF ? parseFloat(vNF) : qtd * valorUnitario,
+    valorTotal,
   };
 }
