@@ -12,6 +12,7 @@
 
 - Config file names follow whatever `create-next-app`/`shadcn` actually generate (`next.config.ts`, `postcss.config.mjs`, no `tailwind.config.ts`) — later tasks should not assume the exact file names originally listed in Task 1, only the tools/behavior they provide.
 - shadcn's `form` component isn't installable (empty in the current upstream registry, both Radix and Base UI styles) — no task in this plan uses it; forms are hand-rolled with plain state (see Task 13), so this doesn't block anything.
+- **UI/UX (mandatory):** every task that creates or modifies user-facing UI (Tasks 8 login page, 13, 14, 15, 16, 20 — and any future UI change) MUST invoke the `ui-ux-pro-max` skill via the Skill tool BEFORE writing any UI code, and follow the design direction it produces (style, color palette, typography, spacing, interaction states, UX guidelines). The first UI task establishes the design system in `docs/design-system.md`; subsequent UI tasks read that file and stay consistent with it instead of re-deriving a new style. Skipping the skill invocation is a spec violation, not a style preference.
 - Supabase provides only Postgres/Auth/Realtime — no file storage there (project uses R2, out of scope for Fase 1, which has no `files` table).
 - Frontend + API deploy target is Vercel, free tier.
 - `returns.status` transitions are enforced in the database (trigger), never only in the UI.
@@ -19,6 +20,10 @@
 - `nf`/`nfd` are nullable columns; only `fn_confirmar_rascunho` enforces `nf IS NOT NULL` before leaving `rascunho`.
 - Duplicate detection (`nf` + `supplier_id`) is app-level (non-unique index + API query), never a hard unique constraint — user must be able to confirm past a warning.
 - RLS in this phase is a documented placeholder ("authenticated full access"), not the final per-role policy (that's Fase 4) — every migration that adds it must comment this explicitly.
+- Delete is soft, never a hard `DELETE` from the app layer: `returns.deleted_at` / `delete_reason` / `deleted_by`. No separate `trash` table. `GET /api/returns` always filters `deleted_at is null`; the lixeira view is `deleted_at is not null` on the same table.
+- `feature_flags(key, enabled, description)` is seeded in this phase even though nothing in Fase 1 reads it yet — Fase 2/3 flags (`confirmacao_chegada_filial`, `assinatura_baixa`, `roteirizacao_coleta`, `batch_mode`) must not be born without a row to gate on.
+- Login supports both Google OAuth (primary, matches current Apps Script users) and email/password (fallback, and the path used by local dev/E2E since Google OAuth needs real provider credentials not available in local Supabase).
+- DANFE barcode/QR scan (Task 20) only ever fills `nf` + `supplier_id` in the lançamento form — the scanned chave de acesso is not persisted as its own column, and duplicate-check keeps using `nf`+`supplier_id` exactly as before. Scan and XML upload (Task 9) are complementary input paths into the same form, never a second source of truth.
 
 ---
 
@@ -126,14 +131,14 @@ git commit -m "chore: initialize local Supabase project"
 
 ---
 
-### Task 3: Core reference tables — `suppliers`, `return_reasons`, `trash`
+### Task 3: Core reference tables — `suppliers`, `return_reasons`, `feature_flags`
 
 **Files:**
 - Create: `supabase/migrations/0001_core_reference_tables.sql`
 - Test: `supabase/tests/0001_core_reference_tables.test.sql`
 
 **Interfaces:**
-- Produces: tables `suppliers(id, name, is_key_account, cnpj, contact_emails, created_at)`, `return_reasons(id, supplier_id, label, active)`, `trash(id, return_id, snapshot, motivo, deleted_by, deleted_at, restored_at)` — consumed by every task from Task 4 onward.
+- Produces: tables `suppliers(id, name, is_key_account, cnpj, contact_emails, created_at)`, `return_reasons(id, supplier_id, label, active)`, `feature_flags(key, enabled, description)` — consumed by every task from Task 4 onward (`feature_flags` has no reader yet in Fase 1; it exists so Fase 2/3 flags aren't born without a row).
 
 - [ ] **Step 1: Write the migration**
 
@@ -155,15 +160,18 @@ create table return_reasons (
   active boolean not null default true
 );
 
-create table trash (
-  id uuid primary key default gen_random_uuid(),
-  return_id uuid not null,
-  snapshot jsonb not null,
-  motivo text not null,
-  deleted_by uuid references auth.users(id),
-  deleted_at timestamptz not null default now(),
-  restored_at timestamptz
+create table feature_flags (
+  key text primary key,
+  enabled boolean not null default false,
+  description text
 );
+
+insert into feature_flags (key, description) values
+  ('confirmacao_chegada_filial', 'Fase 2: confirmação de chegada na filial'),
+  ('assinatura_baixa', 'Fase 2: assinatura na baixa'),
+  ('roteirizacao_coleta', 'Fase 2: roteirização de coleta'),
+  ('batch_mode', 'Fase 3: e-mail de alerta sempre em lote, nunca item a item'),
+  ('email_devolucao_programada', 'Fase 3: e-mail de devolução programada');
 ```
 
 - [ ] **Step 2: Write the pgTAP test**
@@ -175,10 +183,10 @@ select plan(6);
 
 select has_table('suppliers');
 select has_table('return_reasons');
-select has_table('trash');
+select has_table('feature_flags');
 select col_is_pk('suppliers', 'id');
 select col_is_fk('return_reasons', 'supplier_id');
-select col_not_null('trash', 'motivo');
+select col_is_pk('feature_flags', 'key');
 
 select * from finish();
 rollback;
@@ -193,7 +201,7 @@ Expected: `6/6` tests pass.
 
 ```bash
 git add supabase/migrations/0001_core_reference_tables.sql supabase/tests/0001_core_reference_tables.test.sql
-git commit -m "feat(db): add suppliers, return_reasons, trash tables"
+git commit -m "feat(db): add suppliers, return_reasons, feature_flags tables"
 ```
 
 ---
@@ -206,7 +214,7 @@ git commit -m "feat(db): add suppliers, return_reasons, trash tables"
 
 **Interfaces:**
 - Consumes: `suppliers(id)`, `return_reasons(id)` from Task 3.
-- Produces: table `returns(id, nf, nfd, supplier_id, type, reason_id, motivo_detalhe, descricao, qtd, valor_unitario, valor_total, status, data_entrada, responsavel, priority, origin_row_ref, resolved_at, created_by, created_at, updated_at)` and index `idx_returns_nf_supplier` — consumed by every task from Task 5 onward.
+- Produces: table `returns(id, nf, nfd, supplier_id, type, reason_id, motivo_detalhe, descricao, qtd, valor_unitario, valor_total, status, data_entrada, responsavel, priority, origin_row_ref, resolved_at, deleted_at, delete_reason, deleted_by, created_by, created_at, updated_at)` and index `idx_returns_nf_supplier` — consumed by every task from Task 5 onward. Soft-delete lives on this table (`deleted_at`/`delete_reason`/`deleted_by`); there is no separate `trash` table.
 
 - [ ] **Step 1: Write the migration**
 
@@ -231,6 +239,9 @@ create table returns (
   priority text,
   origin_row_ref text,
   resolved_at timestamptz,
+  deleted_at timestamptz,
+  delete_reason text,
+  deleted_by uuid references auth.users(id),
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -421,8 +432,8 @@ git commit -m "feat(db): enforce returns status machine via trigger"
 - Test: `supabase/tests/0004_rpc_functions.test.sql`
 
 **Interfaces:**
-- Consumes: `returns` (Task 4), trigger from Task 5, `trash` (Task 3).
-- Produces: `fn_confirmar_rascunho(p_id uuid) returns returns`, `fn_dar_baixa_venda(p_ids uuid[]) returns setof uuid`, `fn_reabrir(p_ids uuid[], p_motivo text) returns setof uuid`, `fn_excluir(p_id uuid, p_motivo text) returns void` — consumed by API routes in Task 11 and 12.
+- Consumes: `returns` (Task 4), trigger from Task 5.
+- Produces: `fn_confirmar_rascunho(p_id uuid) returns returns`, `fn_dar_baixa_venda(p_ids uuid[]) returns setof uuid`, `fn_reabrir(p_ids uuid[], p_motivo text) returns setof uuid`, `fn_excluir(p_id uuid, p_motivo text) returns void` (soft-delete: sets `deleted_at`/`delete_reason`/`deleted_by`, never deletes the row), `fn_restaurar(p_id uuid) returns returns` (clears the soft-delete fields, sets status back to `pendente`) — consumed by API routes in Task 11 and 12.
 
 - [ ] **Step 1: Write the migration**
 
@@ -473,18 +484,33 @@ create or replace function fn_excluir(p_id uuid, p_motivo text)
 returns void
 security definer
 language plpgsql as $$
-declare
-  v_return returns;
 begin
-  select * into v_return from returns where id = p_id and status = 'pendente';
+  update returns
+    set deleted_at = now(), delete_reason = p_motivo, deleted_by = auth.uid()
+    where id = p_id and status = 'pendente' and deleted_at is null;
+
   if not found then
     raise exception 'devolução % não encontrada ou não está pendente', p_id;
   end if;
+end;
+$$;
 
-  insert into trash (return_id, snapshot, motivo, deleted_by)
-    values (p_id, to_jsonb(v_return), p_motivo, auth.uid());
+create or replace function fn_restaurar(p_id uuid)
+returns returns
+security definer
+language plpgsql as $$
+declare
+  v_return returns;
+begin
+  update returns
+    set deleted_at = null, delete_reason = null, deleted_by = null, status = 'pendente'
+    where id = p_id and deleted_at is not null
+    returning * into v_return;
 
-  delete from returns where id = p_id;
+  if not found then
+    raise exception 'devolução % não encontrada na lixeira', p_id;
+  end if;
+  return v_return;
 end;
 $$;
 ```
@@ -494,7 +520,7 @@ $$;
 `supabase/tests/0004_rpc_functions.test.sql`:
 ```sql
 begin;
-select plan(7);
+select plan(11);
 
 insert into suppliers (name) values ('Fornecedor RPC');
 
@@ -542,6 +568,30 @@ select throws_ok(
   'fn_excluir refuses a non-pendente return'
 );
 
+-- fn_excluir: soft-deletes a pendente row (no hard delete, no trash table)
+insert into returns (supplier_id, type, qtd, valor_unitario, status, nf)
+  select id, 'falta', 1, 1, 'pendente', '1005' from suppliers where name = 'Fornecedor RPC';
+select lives_ok(
+  $$ select fn_excluir(id, 'lançado por engano') from returns where nf = '1005' $$,
+  'fn_excluir succeeds on a pendente row'
+);
+select is(
+  (select deleted_at is not null and delete_reason = 'lançado por engano' from returns where nf = '1005'),
+  true,
+  'fn_excluir sets deleted_at and delete_reason instead of removing the row'
+);
+
+-- fn_restaurar: clears soft-delete fields and reopens as pendente
+select lives_ok(
+  $$ select fn_restaurar(id) from returns where nf = '1005' $$,
+  'fn_restaurar succeeds on a soft-deleted row'
+);
+select is(
+  (select (deleted_at is null and status = 'pendente') from returns where nf = '1005'),
+  true,
+  'fn_restaurar clears deleted_at and resets status to pendente'
+);
+
 select * from finish();
 rollback;
 ```
@@ -549,13 +599,13 @@ rollback;
 - [ ] **Step 3: Apply and run the test**
 
 Run: `npm run db:reset && npm run test:db`
-Expected: `7/7` tests pass.
+Expected: `11/11` tests pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add supabase/migrations/0004_rpc_functions.sql supabase/tests/0004_rpc_functions.test.sql
-git commit -m "feat(db): add RPC functions for confirm/venda/reabrir/excluir"
+git commit -m "feat(db): add RPC functions for confirm/venda/reabrir/excluir/restaurar (soft-delete)"
 ```
 
 ---
@@ -567,7 +617,7 @@ git commit -m "feat(db): add RPC functions for confirm/venda/reabrir/excluir"
 - Test: `supabase/tests/0005_rls_placeholder.test.sql`
 
 **Interfaces:**
-- Consumes: `suppliers`, `return_reasons`, `returns`, `trash` (Tasks 3-4).
+- Consumes: `suppliers`, `return_reasons`, `returns`, `feature_flags` (Tasks 3-4).
 - Produces: RLS enabled with an "authenticated full access" placeholder policy per table, replaced by real per-role policies in Fase 4.
 
 - [ ] **Step 1: Write the migration**
@@ -576,11 +626,14 @@ git commit -m "feat(db): add RPC functions for confirm/venda/reabrir/excluir"
 ```sql
 -- PLACEHOLDER RLS for Fase 1 only: any authenticated user has full access.
 -- Real per-role policies (owner/admin/custom roles, read-only mode) land in Fase 4 (seção 6 do plano).
+-- Soft-deleted rows (returns.deleted_at) are NOT hidden by RLS in this phase — the app layer
+-- filters deleted_at is null / is not null (Task 11/12). A real "hide deleted from non-admin"
+-- policy is a Fase 4 concern once roles exist.
 
 alter table suppliers enable row level security;
 alter table return_reasons enable row level security;
 alter table returns enable row level security;
-alter table trash enable row level security;
+alter table feature_flags enable row level security;
 
 create policy "fase1_authenticated_full_access" on suppliers
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
@@ -591,7 +644,7 @@ create policy "fase1_authenticated_full_access" on return_reasons
 create policy "fase1_authenticated_full_access" on returns
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
-create policy "fase1_authenticated_full_access" on trash
+create policy "fase1_authenticated_full_access" on feature_flags
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 ```
 
@@ -631,16 +684,18 @@ git commit -m "feat(db): enable placeholder RLS (authenticated full access)"
 
 ---
 
-### Task 8: Supabase client helpers, auth middleware, login page
+### Task 8: Supabase client helpers, auth middleware, login page (Google OAuth + password)
 
 **Files:**
 - Create: `lib/supabase/server.ts`, `lib/supabase/client.ts`
 - Create: `middleware.ts`
 - Create: `app/login/page.tsx`
+- Create: `app/auth/callback/route.ts`
 - Test: `tests/unit/supabase-clients.test.ts`
 
 **Interfaces:**
 - Produces: `createClient()` (server, from `lib/supabase/server.ts`) and `createClient()` (browser, from `lib/supabase/client.ts`) — consumed by every API route (Tasks 10-12) and every client component (Tasks 13-16).
+- Login supports two paths: Google OAuth (primary — matches how current Apps Script users already authenticate) and email/password (fallback; also the only path usable in local dev/E2E, since local Supabase has no real Google OAuth credentials configured). Enabling the Google provider for a hosted project is a Supabase dashboard/`config.toml` `[auth.external.google]` step, not covered by this task's automated tests.
 
 - [ ] **Step 1: Write the server client**
 
@@ -733,7 +788,7 @@ export const config = {
 };
 ```
 
-- [ ] **Step 4: Write the login page**
+- [ ] **Step 4: Write the login page (Google OAuth primary, password fallback)**
 
 `app/login/page.tsx`:
 ```tsx
@@ -752,6 +807,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  async function handleGoogleLogin() {
+    setError(null);
+    const supabase = createClient();
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+    if (oauthError) setError(oauthError.message);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -772,27 +837,60 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg border p-6">
+      <div className="w-full max-w-sm space-y-4 rounded-lg border p-6">
         <h1 className="text-lg font-semibold">Entrar</h1>
-        <div className="space-y-2">
-          <Label htmlFor="email">E-mail</Label>
-          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="password">Senha</Label>
-          <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" disabled={loading} className="w-full">
-          {loading ? 'Entrando...' : 'Entrar'}
+
+        <Button type="button" variant="outline" className="w-full" onClick={handleGoogleLogin}>
+          Entrar com Google
         </Button>
-      </form>
+
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="h-px flex-1 bg-border" />
+          ou com senha
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">E-mail</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Senha</Label>
+            <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? 'Entrando...' : 'Entrar'}
+          </Button>
+        </form>
+      </div>
     </div>
   );
 }
 ```
 
-- [ ] **Step 5: Write a smoke test confirming both clients construct without throwing**
+- [ ] **Step 5: Write the OAuth callback route**
+
+`app/auth/callback/route.ts`:
+```typescript
+import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url);
+  const code = searchParams.get('code');
+
+  if (code) {
+    const supabase = createClient();
+    await supabase.auth.exchangeCodeForSession(code);
+  }
+
+  return NextResponse.redirect(`${origin}/returns`);
+}
+```
+
+- [ ] **Step 6: Write a smoke test confirming both clients construct without throwing**
 
 `tests/unit/supabase-clients.test.ts`:
 ```typescript
@@ -811,16 +909,16 @@ describe('supabase browser client', () => {
 });
 ```
 
-- [ ] **Step 6: Run the test**
+- [ ] **Step 7: Run the test**
 
 Run: `npx vitest run tests/unit/supabase-clients.test.ts`
 Expected: `1 passed`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add lib/supabase middleware.ts app/login tests/unit/supabase-clients.test.ts
-git commit -m "feat(auth): add Supabase clients, auth middleware, login page"
+git add lib/supabase middleware.ts app/login app/auth/callback tests/unit/supabase-clients.test.ts
+git commit -m "feat(auth): add Supabase clients, auth middleware, login (Google OAuth + password)"
 ```
 
 ---
@@ -975,7 +1073,7 @@ git commit -m "feat: add NF-e XML parser with unit tests"
 - Test: `tests/unit/api-validation.test.ts`
 
 **Interfaces:**
-- Produces: `Supplier`, `ReturnReason`, `ReturnRecord`, `ReturnStatus`, `ReturnType` types from `lib/types.ts` — consumed by all remaining API and UI tasks. Produces `validateSupplierPayload`, `validateReturnReasonPayload` exported from the route files' shared validation module, consumed by their own tests.
+- Produces: `Supplier`, `ReturnReason`, `ReturnRecord`, `ReturnStatus`, `ReturnType` types from `lib/types.ts` — consumed by all remaining API and UI tasks. `ReturnRecord` carries the soft-delete fields (`deleted_at`, `delete_reason`, `deleted_by`) directly; there is no separate `TrashEntry` type, since there is no separate `trash` table. Produces `validateSupplierPayload`, `validateReturnReasonPayload` exported from the route files' shared validation module, consumed by their own tests.
 
 - [ ] **Step 1: Write shared types**
 
@@ -1016,19 +1114,12 @@ export interface ReturnRecord {
   data_entrada: string;
   responsavel: string | null;
   priority: string | null;
+  deleted_at: string | null;
+  delete_reason: string | null;
+  deleted_by: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface TrashEntry {
-  id: string;
-  return_id: string;
-  snapshot: ReturnRecord;
-  motivo: string;
-  deleted_by: string | null;
-  deleted_at: string;
-  restored_at: string | null;
 }
 ```
 
@@ -1171,7 +1262,7 @@ git commit -m "feat(api): add suppliers and return-reasons CRUD routes"
 
 **Interfaces:**
 - Consumes: `ReturnRecord` type (Task 10), Supabase server client (Task 8).
-- Produces: `GET/POST /api/returns`, `GET/PATCH /api/returns/:id`, `GET /api/returns/check-duplicate` — consumed by the lançamento and lista UI (Tasks 13-14).
+- Produces: `GET/POST /api/returns`, `GET/PATCH /api/returns/:id`, `GET /api/returns/check-duplicate` — consumed by the lançamento and lista UI (Tasks 13-14). `GET /api/returns` always filters `deleted_at is null`; soft-deleted rows only ever surface through `/api/trash` (Task 12).
 
 - [ ] **Step 1: Add schemas to `lib/validation.ts`**
 
@@ -1207,7 +1298,11 @@ export async function GET(request: NextRequest) {
   const supplierId = searchParams.get('supplier_id');
 
   const supabase = createClient();
-  let query = supabase.from('returns').select('*').order('created_at', { ascending: false });
+  let query = supabase
+    .from('returns')
+    .select('*')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
   if (status) query = query.eq('status', status);
   if (supplierId) query = query.eq('supplier_id', supplierId);
 
@@ -1358,8 +1453,8 @@ git commit -m "feat(api): add returns CRUD and duplicate-check routes"
 - Create: `app/api/trash/[id]/restaurar/route.ts`
 
 **Interfaces:**
-- Consumes: RPC functions from Task 6 (`fn_confirmar_rascunho`, `fn_dar_baixa_venda`, `fn_reabrir`, `fn_excluir`), `TrashEntry` type (Task 10).
-- Produces: routes consumed by lançamento (Task 13), lista/batch UI (Task 14), lixeira UI (Task 15).
+- Consumes: RPC functions from Task 6 (`fn_confirmar_rascunho`, `fn_dar_baixa_venda`, `fn_reabrir`, `fn_excluir`, `fn_restaurar`), `ReturnRecord` type (Task 10).
+- Produces: routes consumed by lançamento (Task 13), lista/batch UI (Task 14), lixeira UI (Task 15). `/api/trash` and its restaurar route read/write `returns.deleted_at` — there is no separate `trash` table.
 
 - [ ] **Step 1: Write the confirmar route**
 
@@ -1446,7 +1541,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 }
 ```
 
-- [ ] **Step 5: Write the trash routes**
+- [ ] **Step 5: Write the trash routes (backed by `returns.deleted_at`, no separate table)**
 
 `app/api/trash/route.ts`:
 ```typescript
@@ -1456,9 +1551,9 @@ import { createClient } from '@/lib/supabase/server';
 export async function GET() {
   const supabase = createClient();
   const { data, error } = await supabase
-    .from('trash')
+    .from('returns')
     .select('*')
-    .is('restored_at', null)
+    .not('deleted_at', 'is', null)
     .order('deleted_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -1473,32 +1568,9 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
   const supabase = createClient();
-
-  const { data: trashEntry, error: fetchError } = await supabase
-    .from('trash')
-    .select('*')
-    .eq('id', params.id)
-    .is('restored_at', null)
-    .single();
-
-  if (fetchError || !trashEntry) {
-    return NextResponse.json({ error: 'item de lixeira não encontrado' }, { status: 404 });
-  }
-
-  const snapshot = { ...trashEntry.snapshot, status: 'pendente' };
-  delete snapshot.id;
-
-  const { data: restored, error: insertError } = await supabase
-    .from('returns')
-    .insert(snapshot)
-    .select()
-    .single();
-
-  if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
-
-  await supabase.from('trash').update({ restored_at: new Date().toISOString() }).eq('id', params.id);
-
-  return NextResponse.json(restored);
+  const { data, error } = await supabase.rpc('fn_restaurar', { p_id: params.id });
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json(data);
 }
 ```
 
@@ -2043,7 +2115,7 @@ git commit -m "feat(ui): add returns list with filters and batch action stepper"
 - Create: `app/trash/page.tsx`
 
 **Interfaces:**
-- Consumes: `ReturnRecord`, `TrashEntry` types (Task 10), `/api/returns/:id`, `/api/returns/:id` (DELETE), `/api/trash`, `/api/trash/:id/restaurar` (Tasks 11-12).
+- Consumes: `ReturnRecord` type (Task 10), `/api/returns/:id`, `/api/returns/:id` (DELETE), `/api/trash`, `/api/trash/:id/restaurar` (Tasks 11-12).
 
 - [ ] **Step 1: Write the detail page**
 
@@ -2130,10 +2202,10 @@ export default function ReturnDetailPage() {
 import { useEffect, useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import type { TrashEntry } from '@/lib/types';
+import type { ReturnRecord } from '@/lib/types';
 
 export function TrashTable() {
-  const [entries, setEntries] = useState<TrashEntry[]>([]);
+  const [entries, setEntries] = useState<ReturnRecord[]>([]);
 
   async function load() {
     const data = await fetch('/api/trash').then((r) => r.json());
@@ -2160,9 +2232,9 @@ export function TrashTable() {
       <TableBody>
         {entries.map((e) => (
           <TableRow key={e.id}>
-            <TableCell>{e.snapshot.nf ?? '—'}</TableCell>
-            <TableCell>{e.motivo}</TableCell>
-            <TableCell>{new Date(e.deleted_at).toLocaleString('pt-BR')}</TableCell>
+            <TableCell>{e.nf ?? '—'}</TableCell>
+            <TableCell>{e.delete_reason}</TableCell>
+            <TableCell>{e.deleted_at ? new Date(e.deleted_at).toLocaleString('pt-BR') : '—'}</TableCell>
             <TableCell><Button size="sm" onClick={() => restore(e.id)}>Restaurar</Button></TableCell>
           </TableRow>
         ))}
@@ -2615,8 +2687,428 @@ git commit -m "ci: run vitest, pgTAP, and playwright on every PR"
 
 ---
 
+### Task 19: Backup pipeline — daily `pg_dump` → R2 (before any real data enters)
+
+Supabase's free tier has no automatic backup or point-in-time recovery. This task must land before Fase 1 is considered done and before real production data is entered — corruption or accidental deletion with no backup is an existential risk, not a nice-to-have.
+
+**Files:**
+- Create: `.github/workflows/backup.yml`
+
+**Interfaces:**
+- Consumes: `SUPABASE_DB_URL`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `BACKUP_ENCRYPTION_PASSPHRASE` — all GitHub repo secrets, none committed.
+- Produces: a dated, gzip-compressed, encrypted dump uploaded to a dedicated R2 bucket every day (also usable as the manual keep-alive ping candidate from `curl`ing a health endpoint, tracked separately from this task).
+
+- [ ] **Step 1: Write the backup workflow**
+
+`.github/workflows/backup.yml`:
+```yaml
+name: Backup
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 03:00 America/Sao_Paulo (UTC-3, no DST)
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump, compress, encrypt
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          STAMP=$(TZ='America/Sao_Paulo' date +%Y-%m-%d)
+          pg_dump "$SUPABASE_DB_URL" --no-owner --format=plain \
+            | gzip \
+            | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:PASSPHRASE \
+            > "backup-$STAMP.sql.gz.enc"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: Upload to R2 (daily/weekly/monthly tiers)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          FILE="backup-$STAMP.sql.gz.enc"
+          aws s3 cp "$FILE" "s3://returns-backups/daily/$FILE" --endpoint-url "$ENDPOINT"
+          DOW=$(TZ='America/Sao_Paulo' date +%u)   # 1=Monday
+          DOM=$(TZ='America/Sao_Paulo' date +%d)
+          if [ "$DOW" = "7" ]; then
+            aws s3 cp "$FILE" "s3://returns-backups/weekly/$FILE" --endpoint-url "$ENDPOINT"
+          fi
+          if [ "$DOM" = "01" ]; then
+            aws s3 cp "$FILE" "s3://returns-backups/monthly/$FILE" --endpoint-url "$ENDPOINT"
+          fi
+```
+
+- [ ] **Step 2: Configure R2 lifecycle rules for retention (one-time, Cloudflare dashboard or `wrangler`)**
+
+Set object-expiration rules per prefix: `daily/` expires after 7 days, `weekly/` after 28 days, `monthly/` after 180 days (7 daily + 4 weekly + 6 monthly, per the adendo). This is bucket configuration, not application code — document the exact rule values here so they're reproducible if the bucket is recreated.
+
+- [ ] **Step 3: Add the secrets to the GitHub repo**
+
+`SUPABASE_DB_URL` (from Supabase project settings → Database → Connection string, the `postgres` user, not `service_role` key), `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (R2 API token scoped to the `returns-backups` bucket only), `BACKUP_ENCRYPTION_PASSPHRASE` (generate with `openssl rand -base64 32`, store nowhere else but the GitHub secret and a password manager — losing it makes every backup unrecoverable).
+
+- [ ] **Step 4: Manual smoke test — run once via `workflow_dispatch`**
+
+Trigger the workflow manually from the Actions tab. Expected: a new object appears under `daily/` in the R2 bucket; download it, decrypt with `openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:<passphrase>`, gunzip, and confirm it's a valid `pg_dump` SQL file (`head` shows `-- PostgreSQL database dump`).
+
+- [ ] **Step 5: Document the restore-test runbook (not automated — run quarterly against the sandbox project)**
+
+Add a short runbook note (e.g. `docs/runbooks/restore-test.md`) describing: download latest daily backup → decrypt → gunzip → `psql "$SANDBOX_DB_URL" < backup.sql` against the sandbox Supabase project (which lives paused between uses, per the adendo) → spot-check row counts against production. A backup that has never been restored is not a verified backup.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add .github/workflows/backup.yml docs/runbooks/restore-test.md
+git commit -m "ci: add daily encrypted pg_dump backup to R2 with tiered retention"
+```
+
+---
+
+### Task 20: Leitura de código de barras/QR da DANFE (lançamento)
+
+> Spec: `docs/superpowers/specs/2026-07-02-leitura-danfe-design.md`. Extends the lançamento form (Task 13) and the suppliers route (Task 10). Placed at the end of this document to avoid renumbering Tasks 1-19; there is no real ordering dependency forcing it to run last.
+
+**Files:**
+- Create: `lib/danfe-scanner.ts`
+- Test: `tests/unit/danfe-scanner.test.ts`
+- Create: `components/returns/danfe-scan-input.tsx`
+- Create: `components/returns/danfe-scan-camera-dialog.tsx`
+- Modify: `components/returns/return-form.tsx` (Task 13) — wire scan input + camera dialog into the form
+- Modify: `app/api/suppliers/route.ts` (Task 10) — add `cnpj` query param to `GET`
+- Modify: `supabase/seed.sql` (Task 17) — add a supplier with a known `cnpj` for the E2E test
+- Create: `e2e/leitura-danfe.spec.ts`
+
+**Interfaces:**
+- Consumes: `ReturnForm` (Task 13), `Supplier` type and `GET /api/suppliers` (Task 10), `suppliers.cnpj` column (Task 3).
+- Produces: `parseDanfeCode(raw: string): { chaveAcesso: string; cnpjEmitente: string; nNF: string } | null` from `lib/danfe-scanner.ts` — consumed by both new components. Both components call the same `onScan(result: { cnpjEmitente: string; nNF: string }) => void` prop, consumed by `ReturnForm`.
+
+- [ ] **Step 1: Write the failing parser test**
+
+`tests/unit/danfe-scanner.test.ts`:
+```typescript
+import { describe, it, expect } from 'vitest';
+import { parseDanfeCode } from '@/lib/danfe-scanner';
+
+const CHAVE_VALIDA = '35240112345678000199550010000123451123456780';
+
+describe('parseDanfeCode', () => {
+  it('parses a raw 44-digit chave de acesso (USB scanner input)', () => {
+    expect(parseDanfeCode(CHAVE_VALIDA)).toEqual({
+      chaveAcesso: CHAVE_VALIDA,
+      cnpjEmitente: '12345678000199',
+      nNF: '12345',
+    });
+  });
+
+  it('parses a QR code URL carrying the chave in the p= param', () => {
+    const url = `https://www.sefazvirtual.fazenda.gov.br/nfce/qrcode?p=${CHAVE_VALIDA}|2|1|abcdef1234567890`;
+    expect(parseDanfeCode(url)).toEqual({
+      chaveAcesso: CHAVE_VALIDA,
+      cnpjEmitente: '12345678000199',
+      nNF: '12345',
+    });
+  });
+
+  it('returns null for an empty string', () => {
+    expect(parseDanfeCode('')).toBeNull();
+  });
+
+  it('returns null for garbage input', () => {
+    expect(parseDanfeCode('not a valid code at all')).toBeNull();
+  });
+
+  it('returns null for a numeric string of the wrong length', () => {
+    expect(parseDanfeCode('12345')).toBeNull();
+  });
+
+  it('returns null for a QR URL missing the p= param', () => {
+    expect(parseDanfeCode('https://example.com/qrcode?x=1')).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npx vitest run tests/unit/danfe-scanner.test.ts`
+Expected: FAIL with `Cannot find module '@/lib/danfe-scanner'` (or similar — the file doesn't exist yet).
+
+- [ ] **Step 3: Implement the parser**
+
+`lib/danfe-scanner.ts`:
+```typescript
+export interface ParsedDanfeCode {
+  chaveAcesso: string;
+  cnpjEmitente: string;
+  nNF: string;
+}
+
+function extractChaveFromQrParam(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    const p = url.searchParams.get('p');
+    if (!p) return null;
+    return p.split('|')[0];
+  } catch {
+    return null;
+  }
+}
+
+export function parseDanfeCode(raw: string): ParsedDanfeCode | null {
+  const trimmed = raw.trim();
+  const candidate = /^\d{44}$/.test(trimmed) ? trimmed : extractChaveFromQrParam(trimmed);
+
+  if (!candidate || !/^\d{44}$/.test(candidate)) {
+    return null;
+  }
+
+  const cnpjEmitente = candidate.slice(6, 20);
+  const nNF = String(parseInt(candidate.slice(25, 34), 10));
+
+  return { chaveAcesso: candidate, cnpjEmitente, nNF };
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `npx vitest run tests/unit/danfe-scanner.test.ts`
+Expected: `6 passed`.
+
+- [ ] **Step 5: Add the camera-scanning dependency**
+
+Run: `npm install @zxing/browser`
+
+- [ ] **Step 6: Write the desktop scan-input component (USB scanner, HID keyboard emulation)**
+
+`components/returns/danfe-scan-input.tsx`:
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { parseDanfeCode, type ParsedDanfeCode } from '@/lib/danfe-scanner';
+
+export function DanfeScanInput({
+  onScan,
+}: {
+  onScan: (result: Pick<ParsedDanfeCode, 'cnpjEmitente' | 'nNF'>) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    const raw = e.currentTarget.value;
+    const parsed = parseDanfeCode(raw);
+
+    if (!parsed) {
+      setError('Código não reconhecido. Tente novamente ou preencha manualmente.');
+    } else {
+      setError(null);
+      onScan(parsed);
+    }
+
+    e.currentTarget.value = '';
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="danfe-scan">Leitor de código de barras</Label>
+      <Input
+        id="danfe-scan"
+        autoFocus
+        placeholder="Aponte o leitor de código de barras aqui"
+        onKeyDown={handleKeyDown}
+      />
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 7: Write the mobile/fallback camera dialog component**
+
+`components/returns/danfe-scan-camera-dialog.tsx`:
+```tsx
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { parseDanfeCode, type ParsedDanfeCode } from '@/lib/danfe-scanner';
+
+export function DanfeScanCameraDialog({
+  open,
+  onClose,
+  onScan,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onScan: (result: Pick<ParsedDanfeCode, 'cnpjEmitente' | 'nNF'>) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !videoRef.current) return;
+
+    const reader = new BrowserMultiFormatReader();
+    let handled = false;
+
+    reader
+      .decodeFromVideoDevice(undefined, videoRef.current, (result) => {
+        if (handled || !result) return;
+        const parsed = parseDanfeCode(result.getText());
+        if (!parsed) return;
+        handled = true;
+        onScan(parsed);
+        onClose();
+      })
+      .catch(() => setError('Sem acesso à câmera — preencha manualmente.'));
+
+    return () => {
+      handled = true;
+      reader.reset();
+    };
+  }, [open, onClose, onScan]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Escanear código da DANFE</DialogTitle></DialogHeader>
+        {error ? (
+          <p className="text-sm text-red-600">{error}</p>
+        ) : (
+          <video ref={videoRef} className="w-full rounded" />
+        )}
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+- [ ] **Step 8: Add the `cnpj` query param to the suppliers route**
+
+In `app/api/suppliers/route.ts`, replace the existing `GET`:
+```typescript
+export async function GET(request: NextRequest) {
+  const cnpj = new URL(request.url).searchParams.get('cnpj');
+
+  const supabase = createClient();
+  let query = supabase.from('suppliers').select('*').order('name');
+  if (cnpj) query = query.eq('cnpj', cnpj);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+```
+
+- [ ] **Step 9: Wire both scan components into the lançamento form**
+
+In `components/returns/return-form.tsx`, add the imports:
+```tsx
+import { useState } from 'react';
+import { DanfeScanInput } from './danfe-scan-input';
+import { DanfeScanCameraDialog } from './danfe-scan-camera-dialog';
+```
+(the existing `useState`/`useEffect` import line already covers `useState` — don't duplicate it, just add the two component imports alongside the existing `XmlUpload`/`DuplicateWarningDialog` imports.)
+
+Add state and the scan handler inside `ReturnForm`, alongside the existing `useState` calls:
+```tsx
+const [showCamera, setShowCamera] = useState(false);
+const [scanWarning, setScanWarning] = useState<string | null>(null);
+
+async function handleScan({ cnpjEmitente, nNF }: { cnpjEmitente: string; nNF: string }) {
+  setScanWarning(null);
+  const matches: Supplier[] = await fetch(`/api/suppliers?cnpj=${cnpjEmitente}`).then((r) => r.json());
+
+  setForm((f) => ({
+    ...f,
+    nf: nNF,
+    supplier_id: matches[0]?.id ?? f.supplier_id,
+  }));
+
+  if (matches.length === 0) {
+    setScanWarning('CNPJ não cadastrado — selecione o fornecedor manualmente.');
+  }
+}
+```
+
+Add the UI, directly below the existing `<XmlUpload ... />` line:
+```tsx
+<div className="flex items-center gap-2">
+  <DanfeScanInput onScan={handleScan} />
+  <Button type="button" variant="outline" onClick={() => setShowCamera(true)}>
+    Escanear com câmera
+  </Button>
+</div>
+{scanWarning && <p className="text-sm text-amber-600">{scanWarning}</p>}
+<DanfeScanCameraDialog open={showCamera} onClose={() => setShowCamera(false)} onScan={handleScan} />
+```
+
+- [ ] **Step 10: Seed a supplier with a known CNPJ for the E2E test**
+
+Append to `supabase/seed.sql`:
+```sql
+insert into suppliers (name, cnpj) values ('Fornecedor Scan E2E', '12345678000199');
+```
+
+- [ ] **Step 11: Write the Playwright test**
+
+`e2e/leitura-danfe.spec.ts`:
+```typescript
+import { test, expect } from './fixtures';
+
+const CHAVE_CNPJ_CADASTRADO = '35240112345678000199550010000123451123456780';
+const CHAVE_CNPJ_DESCONHECIDO = '35240199999999000199550010000067890123456780';
+
+test('scan preenche NF e fornecedor quando o CNPJ está cadastrado', async ({ page }) => {
+  await page.goto('/returns/new');
+  const scanField = page.getByPlaceholder('Aponte o leitor de código de barras aqui');
+  await scanField.fill(CHAVE_CNPJ_CADASTRADO);
+  await scanField.press('Enter');
+
+  await expect(page.getByLabel('NF')).toHaveValue('12345');
+  await expect(page.getByText('Selecione o fornecedor')).not.toBeVisible();
+});
+
+test('scan com CNPJ não cadastrado preenche só o NF e mostra aviso', async ({ page }) => {
+  await page.goto('/returns/new');
+  const scanField = page.getByPlaceholder('Aponte o leitor de código de barras aqui');
+  await scanField.fill(CHAVE_CNPJ_DESCONHECIDO);
+  await scanField.press('Enter');
+
+  await expect(page.getByLabel('NF')).toHaveValue('67890');
+  await expect(page.getByText('CNPJ não cadastrado')).toBeVisible();
+});
+```
+
+- [ ] **Step 12: Run the suite against local Supabase**
+
+Run: `npm run db:reset && npx playwright test e2e/leitura-danfe.spec.ts`
+Expected: both specs pass (fix any selector mismatches surfaced by the actual rendered DOM before proceeding).
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add lib/danfe-scanner.ts tests/unit/danfe-scanner.test.ts components/returns/danfe-scan-input.tsx components/returns/danfe-scan-camera-dialog.tsx components/returns/return-form.tsx app/api/suppliers/route.ts supabase/seed.sql e2e/leitura-danfe.spec.ts package.json package-lock.json
+git commit -m "feat(returns): scan DANFE barcode/QR to auto-fill NF and fornecedor"
+```
+
+---
+
 ## Self-Review Notes
 
 - **Spec coverage:** every section of the Fase 1 design doc (setup, modelo de dados, máquina de estados, API, UI, testes) maps to at least one task above; the "fora de escopo" list from the spec is intentionally not covered here.
 - **Fixed during planning:** the spec's `nf text not null` was corrected to nullable before this plan was written (see spec commit `fix(spec): nf/nfd nullable in rascunho status`); Task 4's migration and Task 11's schema both reflect the nullable column.
-- **Type consistency checked:** `ReturnRecord`, `Supplier`, `ReturnReason`, `TrashEntry` (Task 10) are the only types referenced by name in Tasks 11-16; RPC function names (`fn_confirmar_rascunho`, `fn_dar_baixa_venda`, `fn_reabrir`, `fn_excluir`) are identical between Task 6 (definition) and Task 12 (`supabase.rpc(...)` calls).
+- **Type consistency checked:** `ReturnRecord`, `Supplier`, `ReturnReason` (Task 10) are the only types referenced by name in Tasks 11-16; RPC function names (`fn_confirmar_rascunho`, `fn_dar_baixa_venda`, `fn_reabrir`, `fn_excluir`, `fn_restaurar`) are identical between Task 6 (definition) and Task 12 (`supabase.rpc(...)` calls).
+- **v4→v5 adendo reconciled (2026-07-02):** soft-delete (`returns.deleted_at`/`delete_reason`/`deleted_by`) replaces the earlier `trash` table design across Tasks 3-4, 6-7, 10-12, 15; `feature_flags` seeded in Task 3/7 ahead of Fase 2/3; login (Task 8) supports Google OAuth as primary with password fallback; backup pipeline added as Task 19, ahead of any real data entering the system.
+- **DANFE scan added (2026-07-02):** Task 20 adds barcode/QR scanning to the lançamento form per `docs/superpowers/specs/2026-07-02-leitura-danfe-design.md` — auto-fills `nf`+`supplier_id` only (no qtd/valor, no new column), extends Task 13's form and Task 10's suppliers route.
