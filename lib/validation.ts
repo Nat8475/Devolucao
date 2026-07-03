@@ -12,3 +12,18 @@ export const returnReasonSchema = z.object({
   label: z.string().min(1, 'label é obrigatório'),
   active: z.boolean().optional().default(true),
 });
+
+export const returnCreateSchema = z.object({
+  nf: z.string().nullable().optional(),
+  nfd: z.string().nullable().optional(),
+  supplier_id: z.string().uuid(),
+  type: z.enum(['avaria', 'falta', 'rejeicao']),
+  reason_id: z.string().uuid().nullable().optional(),
+  motivo_detalhe: z.string().nullable().optional(),
+  descricao: z.string().nullable().optional(),
+  qtd: z.number().positive(),
+  valor_unitario: z.number().positive(),
+  status: z.enum(['rascunho', 'pendente']).optional().default('pendente'),
+});
+
+export const returnPatchSchema = returnCreateSchema.partial().omit({ status: true });
