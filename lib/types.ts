@@ -33,6 +33,8 @@ export interface ReturnRecord {
   data_entrada: string;
   responsavel: string | null;
   priority: string | null;
+  origin_row_ref: string | null;
+  resolved_at: string | null;
   deleted_at: string | null;
   delete_reason: string | null;
   deleted_by: string | null;
