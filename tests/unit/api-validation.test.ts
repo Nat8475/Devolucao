@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { supplierSchema, returnReasonSchema, returnCreateSchema } from '@/lib/validation';
+import {
+  supplierSchema,
+  returnReasonSchema,
+  returnCreateSchema,
+  batchVendaSchema,
+  batchReabrirSchema,
+  excluirSchema,
+} from '@/lib/validation';
 
 describe('supplierSchema', () => {
   it('rejects a missing name', () => {
@@ -41,5 +48,72 @@ describe('returnCreateSchema', () => {
       status: 'rascunho',
     });
     expect(result.nf).toBeUndefined();
+  });
+});
+
+describe('batchVendaSchema', () => {
+  it('rejects an empty ids list', () => {
+    expect(batchVendaSchema.safeParse({ ids: [] }).success).toBe(false);
+  });
+
+  it('rejects a non-array ids', () => {
+    expect(batchVendaSchema.safeParse({ ids: 'not-an-array' }).success).toBe(false);
+  });
+
+  it('rejects ids that are not uuids', () => {
+    expect(batchVendaSchema.safeParse({ ids: ['not-a-uuid'] }).success).toBe(false);
+  });
+
+  it('accepts a non-empty list of uuids', () => {
+    const result = batchVendaSchema.parse({
+      ids: ['123e4567-e89b-12d3-a456-426614174000'],
+    });
+    expect(result.ids).toHaveLength(1);
+  });
+});
+
+describe('batchReabrirSchema', () => {
+  it('rejects an empty ids list', () => {
+    expect(
+      batchReabrirSchema.safeParse({ ids: [], motivo: 'erro' }).success
+    ).toBe(false);
+  });
+
+  it('rejects a missing motivo', () => {
+    expect(
+      batchReabrirSchema.safeParse({ ids: ['123e4567-e89b-12d3-a456-426614174000'] }).success
+    ).toBe(false);
+  });
+
+  it('rejects a blank motivo', () => {
+    expect(
+      batchReabrirSchema.safeParse({
+        ids: ['123e4567-e89b-12d3-a456-426614174000'],
+        motivo: '   ',
+      }).success
+    ).toBe(false);
+  });
+
+  it('accepts a valid payload', () => {
+    const result = batchReabrirSchema.parse({
+      ids: ['123e4567-e89b-12d3-a456-426614174000'],
+      motivo: 'erro de digitação',
+    });
+    expect(result.motivo).toBe('erro de digitação');
+  });
+});
+
+describe('excluirSchema', () => {
+  it('rejects a missing motivo', () => {
+    expect(excluirSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('rejects a blank motivo', () => {
+    expect(excluirSchema.safeParse({ motivo: '   ' }).success).toBe(false);
+  });
+
+  it('accepts a valid motivo', () => {
+    const result = excluirSchema.parse({ motivo: 'lançado por engano' });
+    expect(result.motivo).toBe('lançado por engano');
   });
 });

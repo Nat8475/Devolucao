@@ -27,3 +27,16 @@ export const returnCreateSchema = z.object({
 });
 
 export const returnPatchSchema = returnCreateSchema.partial().omit({ status: true });
+
+export const batchVendaSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'ids deve ser uma lista não vazia'),
+});
+
+export const batchReabrirSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'ids deve ser uma lista não vazia'),
+  motivo: z.string().trim().min(1, 'motivo é obrigatório'),
+});
+
+export const excluirSchema = z.object({
+  motivo: z.string().trim().min(1, 'motivo é obrigatório'),
+});
