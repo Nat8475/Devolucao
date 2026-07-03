@@ -1,1 +1,1 @@
-﻿-- Seed data for local development. Applied by 'supabase db reset' (see config.toml [db.seed]).
+-- Seed data for local development. Applied by 'supabase db reset' (see config.toml [db.seed]).
