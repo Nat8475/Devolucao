@@ -1,6 +1,7 @@
 create or replace function fn_confirmar_rascunho(p_id uuid)
 returns returns
 security definer
+set search_path = public, pg_catalog
 language plpgsql as $$
 declare
   v_return returns;
@@ -14,7 +15,10 @@ begin
     raise exception 'nf é obrigatório para confirmar o lançamento';
   end if;
 
-  update returns set status = 'pendente' where id = p_id returning * into v_return;
+  update returns set status = 'pendente' where id = p_id and status = 'rascunho' returning * into v_return;
+  if not found then
+    raise exception 'devolução % não encontrada ou não está em rascunho', p_id;
+  end if;
   return v_return;
 end;
 $$;
@@ -22,6 +26,7 @@ $$;
 create or replace function fn_dar_baixa_venda(p_ids uuid[])
 returns setof uuid
 security definer
+set search_path = public, pg_catalog
 language sql as $$
   update returns
     set status = 'venda'
@@ -32,6 +37,7 @@ $$;
 create or replace function fn_reabrir(p_ids uuid[], p_motivo text)
 returns setof uuid
 security definer
+set search_path = public, pg_catalog
 language sql as $$
   update returns
     set status = 'pendente', motivo_detalhe = p_motivo
@@ -42,6 +48,7 @@ $$;
 create or replace function fn_excluir(p_id uuid, p_motivo text)
 returns void
 security definer
+set search_path = public, pg_catalog
 language plpgsql as $$
 begin
   update returns
@@ -57,6 +64,7 @@ $$;
 create or replace function fn_restaurar(p_id uuid)
 returns returns
 security definer
+set search_path = public, pg_catalog
 language plpgsql as $$
 declare
   v_return returns;

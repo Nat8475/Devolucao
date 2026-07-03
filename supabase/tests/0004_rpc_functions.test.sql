@@ -1,5 +1,5 @@
 begin;
-select plan(11);
+select plan(12);
 
 insert into suppliers (name) values ('Fornecedor RPC');
 
@@ -18,6 +18,13 @@ select lives_ok(
   'fn_confirmar_rascunho succeeds once nf is set'
 );
 select is((select status from returns where nf = '1001'), 'pendente', 'status is pendente after confirm');
+
+-- fn_confirmar_rascunho: race closed - calling again on an already-pendente row raises
+select throws_ok(
+  $$ select fn_confirmar_rascunho(id) from returns where nf = '1001' $$,
+  'P0001', null,
+  'fn_confirmar_rascunho raises when the row is no longer rascunho (race closed)'
+);
 
 -- fn_dar_baixa_venda: batch, only pendente rows affected
 insert into returns (supplier_id, type, qtd, valor_unitario, status, nf)
