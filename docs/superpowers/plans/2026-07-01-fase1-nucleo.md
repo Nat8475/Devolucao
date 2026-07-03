@@ -6,10 +6,12 @@
 
 **Architecture:** Next.js App Router (single repo) talks to Supabase Postgres through Route Handlers using `@supabase/ssr`. State-machine safety lives in the database: a `BEFORE UPDATE` trigger rejects invalid `returns.status` transitions no matter who issues the `UPDATE`, and `SECURITY DEFINER` RPC functions are the sanctioned path for every state-changing or batch operation, using the `UPDATE ... WHERE status = :expected` pattern for safe concurrent batch actions.
 
-**Tech Stack:** Next.js 14 (App Router, TypeScript), Tailwind CSS, shadcn/ui, Supabase (Postgres, Auth, CLI for local dev), `@supabase/ssr`, `@supabase/supabase-js`, Vitest + jsdom, pgTAP, Playwright.
+**Tech Stack:** Next.js (App Router, TypeScript) via `create-next-app@latest` — resolved to Next.js 16 / React 19 / Tailwind v4 (CSS-first config, no `tailwind.config.ts`) as of Task 1's execution on 2026-07-02; accepted as-is rather than pinned to an older major, since no task's code depends on Tailwind v3-only config or Next 14-only APIs. shadcn/ui initialized explicitly with `-b radix --preset nova` (the CLI's own `-d` default is now Base UI, not Radix — Radix was chosen to match what the rest of this plan assumes). Supabase (Postgres, Auth, CLI for local dev), `@supabase/ssr`, `@supabase/supabase-js`, Vitest + jsdom, pgTAP, Playwright.
 
 ## Global Constraints
 
+- Config file names follow whatever `create-next-app`/`shadcn` actually generate (`next.config.ts`, `postcss.config.mjs`, no `tailwind.config.ts`) — later tasks should not assume the exact file names originally listed in Task 1, only the tools/behavior they provide.
+- shadcn's `form` component isn't installable (empty in the current upstream registry, both Radix and Base UI styles) — no task in this plan uses it; forms are hand-rolled with plain state (see Task 13), so this doesn't block anything.
 - Supabase provides only Postgres/Auth/Realtime — no file storage there (project uses R2, out of scope for Fase 1, which has no `files` table).
 - Frontend + API deploy target is Vercel, free tier.
 - `returns.status` transitions are enforced in the database (trigger), never only in the UI.
@@ -20,12 +22,12 @@
 
 ---
 
-### Task 1: Project scaffold (Next.js, TypeScript, Tailwind, shadcn/ui)
+### Task 1: Project scaffold (Next.js, TypeScript, Tailwind, shadcn/ui) — DONE (2026-07-02, commit `1a77f61`)
 
-**Files:**
-- Create: `package.json`, `tsconfig.json`, `next.config.mjs`, `tailwind.config.ts`, `postcss.config.js`, `.gitignore`, `.env.local.example`
+**Files (as actually generated — see Global Constraints/Tech Stack note on version acceptance):**
+- Create: `package.json`, `tsconfig.json`, `next.config.ts`, `postcss.config.mjs`, `.gitignore`, `.env.local.example` (no `tailwind.config.ts` — Tailwind v4 is CSS-first, configured in `app/globals.css`)
 - Create: `app/layout.tsx`, `app/page.tsx`, `app/globals.css`
-- Create: `components.json` (shadcn/ui config)
+- Create: `components.json` (shadcn/ui config, `style: radix-nova`)
 - Create: `lib/utils.ts` (shadcn `cn` helper)
 
 **Interfaces:**
