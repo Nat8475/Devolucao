@@ -15,7 +15,8 @@ export async function GET(request: NextRequest) {
     .from('returns')
     .select('id, status')
     .eq('nf', nf)
-    .eq('supplier_id', supplierId);
+    .eq('supplier_id', supplierId)
+    .is('deleted_at', null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ duplicate: (data?.length ?? 0) > 0, matches: data });

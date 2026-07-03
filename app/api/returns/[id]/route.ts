@@ -8,7 +8,7 @@ export async function GET(
 ) {
   const { id } = await params;
   const supabase = await createClient();
-  const { data, error } = await supabase.from('returns').select('*').eq('id', id).single();
+  const { data, error } = await supabase.from('returns').select('*').eq('id', id).is('deleted_at', null).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 404 });
   return NextResponse.json(data);
 }
@@ -29,6 +29,7 @@ export async function PATCH(
     .from('returns')
     .update(parsed.data)
     .eq('id', id)
+    .is('deleted_at', null)
     .in('status', ['rascunho', 'pendente'])
     .select()
     .maybeSingle();
