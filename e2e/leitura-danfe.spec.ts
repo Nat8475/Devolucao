@@ -2,9 +2,10 @@ import { test, expect } from './fixtures';
 
 const CHAVE_CNPJ_CADASTRADO = '35240112345678000199550010000123451123456780';
 // Nota: nNF ocupa as posições 26-34 (9 dígitos, 0-based slice(25,34)); a chave
-// abaixo foi recalculada para embutir nNF="000067890" (-> 67890 sem zeros à
-// esquerda) e o CNPJ "99999999000199" nas posições corretas.
-const CHAVE_CNPJ_DESCONHECIDO = '35240199999999000199550010000678901234567800';
+// abaixo embute nNF="000067890" (-> 67890 sem zeros à esquerda), o CNPJ
+// "99999999000199" nas posições 7-20, e termina com o DV mod-11 correto (6) —
+// o parser rejeita chaves com dígito verificador inválido.
+const CHAVE_CNPJ_DESCONHECIDO = '35240199999999000199550010000678901234567806';
 
 test('scan preenche NF e fornecedor quando o CNPJ está cadastrado', async ({ page }) => {
   await page.goto('/returns/new');
