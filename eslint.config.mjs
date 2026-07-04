@@ -13,6 +13,16 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    // Playwright fixtures use a second callback parameter named `use`
+    // (`async ({ page }, use) => ...`), which react-hooks/rules-of-hooks
+    // misreads as a React hook call. This directory has no React rendering,
+    // so the rule doesn't apply.
+    files: ["e2e/**/*.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
