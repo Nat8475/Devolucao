@@ -31,9 +31,13 @@ jobs:
           --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY
           > .env.local
 
+      - run: npm run lint
+
       - run: npm run test:db
 
       - run: npm run test
+
+      - run: npm run build
 
       - run: npx playwright install --with-deps chromium
 
