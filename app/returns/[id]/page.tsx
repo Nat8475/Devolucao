@@ -23,6 +23,8 @@ export default function ReturnDetailPage() {
   const [motivo, setMotivo] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +45,25 @@ export default function ReturnDetailPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  async function handleConfirmar() {
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      const res = await fetch(`/api/returns/${id}/confirmar`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json();
+        setConfirmError(body.error ?? 'Não foi possível confirmar o lançamento.');
+        return;
+      }
+      const data = await res.json();
+      setRecord(data);
+    } catch {
+      setConfirmError('Não foi possível confirmar o lançamento. Tente novamente.');
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   function openDelete() {
     setMotivo('');
@@ -107,6 +128,19 @@ export default function ReturnDetailPage() {
         <dt className="text-muted-foreground">Valor total</dt>
         <dd className="tabular-nums">{currencyFormatter.format(record.valor_total)}</dd>
       </dl>
+
+      {record.status === 'rascunho' && (
+        <div className="space-y-2">
+          <Button className="cursor-pointer" disabled={confirming} onClick={handleConfirmar}>
+            {confirming ? 'Confirmando...' : 'Confirmar lançamento'}
+          </Button>
+          {confirmError && (
+            <p role="alert" className="text-sm text-destructive">
+              {confirmError}
+            </p>
+          )}
+        </div>
+      )}
 
       {record.status === 'pendente' && (
         <Button variant="destructive" className="cursor-pointer" onClick={openDelete}>
