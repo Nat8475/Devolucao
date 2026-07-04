@@ -6,23 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BatchActionsStepper } from './batch-actions-stepper';
+import { STATUS_LABELS, STATUS_BADGE_VARIANT } from '@/lib/return-status';
 import type { ReturnRecord, ReturnStatus } from '@/lib/types';
-
-const STATUS_LABELS: Record<ReturnStatus, string> = {
-  rascunho: 'Rascunho',
-  pendente: 'Pendente',
-  em_transferencia: 'Em Transferência',
-  devolvido: 'Devolvido',
-  venda: 'Venda',
-};
-
-const STATUS_BADGE_VARIANT: Record<ReturnStatus, 'default' | 'secondary' | 'outline'> = {
-  rascunho: 'outline',
-  pendente: 'secondary',
-  em_transferencia: 'secondary',
-  devolvido: 'default',
-  venda: 'default',
-};
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const numberFormatter = new Intl.NumberFormat('pt-BR');
