@@ -13,7 +13,7 @@ export const returnReasonSchema = z.object({
   active: z.boolean().optional().default(true),
 });
 
-export const returnCreateSchema = z.object({
+const returnBaseSchema = z.object({
   nf: z.string().nullable().optional(),
   nfd: z.string().nullable().optional(),
   supplier_id: z.string().uuid(),
@@ -26,7 +26,20 @@ export const returnCreateSchema = z.object({
   status: z.enum(['rascunho', 'pendente']).optional().default('pendente'),
 });
 
-export const returnPatchSchema = returnCreateSchema.partial().omit({ status: true });
+export const returnCreateSchema = returnBaseSchema
+  // nf só é opcional em rascunho; criar já como pendente sem nf pularia o
+  // portão que fn_confirmar_rascunho aplica no fluxo normal (rascunho -> pendente).
+  .superRefine((data, ctx) => {
+    if (data.status === 'pendente' && (!data.nf || data.nf.trim() === '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'nf é obrigatório para lançar como pendente',
+        path: ['nf'],
+      });
+    }
+  });
+
+export const returnPatchSchema = returnBaseSchema.partial().omit({ status: true });
 
 export const batchVendaSchema = z.object({
   ids: z.array(z.string().uuid()).min(1, 'ids deve ser uma lista não vazia'),

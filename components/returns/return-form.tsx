@@ -24,7 +24,7 @@ interface FormState {
   valor_unitario: string;
 }
 
-type FieldErrors = Partial<Record<'supplier_id' | 'type' | 'qtd' | 'valor_unitario', string>>;
+type FieldErrors = Partial<Record<'supplier_id' | 'type' | 'qtd' | 'valor_unitario' | 'nf', string>>;
 
 const EMPTY_FORM: FormState = {
   nf: '',
@@ -38,13 +38,17 @@ const EMPTY_FORM: FormState = {
 
 // nf/nfd são os únicos campos opcionais em rascunho (schema do banco). Fornecedor,
 // tipo, quantidade e valor unitário são NOT NULL na tabela `returns` independente do status.
-function validate(form: FormState): FieldErrors {
+// nf passa a ser exigido quando o envio é como pendente (mirror de lib/validation.ts
+// returnCreateSchema.superRefine): lançar direto como pendente sem nf pularia o
+// portão que fn_confirmar_rascunho aplica no fluxo normal (rascunho -> pendente).
+function validate(form: FormState, status: 'rascunho' | 'pendente'): FieldErrors {
   const errors: FieldErrors = {};
   if (!form.supplier_id) errors.supplier_id = 'Selecione o fornecedor.';
   if (!form.type) errors.type = 'Selecione o tipo.';
   if (!form.qtd || Number(form.qtd) <= 0) errors.qtd = 'Informe uma quantidade maior que zero.';
   if (!form.valor_unitario || Number(form.valor_unitario) <= 0)
     errors.valor_unitario = 'Informe um valor unitário maior que zero.';
+  if (status === 'pendente' && !form.nf.trim()) errors.nf = 'NF é obrigatória para lançar como pendente.';
   return errors;
 }
 
@@ -112,7 +116,7 @@ export function ReturnForm() {
 
   async function submit(status: 'rascunho' | 'pendente') {
     setFormError(null);
-    const errors = validate(form);
+    const errors = validate(form, status);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -214,10 +218,12 @@ export function ReturnForm() {
           <Label htmlFor="nf">NF</Label>
           <Input
             id="nf"
+            aria-invalid={!!fieldErrors.nf}
             value={form.nf}
             onChange={(e) => setForm({ ...form, nf: e.target.value })}
             placeholder="Opcional em rascunho"
           />
+          {fieldErrors.nf && <p className="text-sm text-destructive">{fieldErrors.nf}</p>}
         </div>
 
         <div className="space-y-2">

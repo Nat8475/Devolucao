@@ -49,6 +49,44 @@ describe('returnCreateSchema', () => {
     });
     expect(result.nf).toBeUndefined();
   });
+
+  it('rejects status pendente with null nf', () => {
+    expect(
+      returnCreateSchema.safeParse({
+        supplier_id: '123e4567-e89b-12d3-a456-426614174000',
+        type: 'avaria',
+        qtd: 1,
+        valor_unitario: 1,
+        status: 'pendente',
+        nf: null,
+      }).success
+    ).toBe(false);
+  });
+
+  it('rejects status pendente with blank nf', () => {
+    expect(
+      returnCreateSchema.safeParse({
+        supplier_id: '123e4567-e89b-12d3-a456-426614174000',
+        type: 'avaria',
+        qtd: 1,
+        valor_unitario: 1,
+        status: 'pendente',
+        nf: '   ',
+      }).success
+    ).toBe(false);
+  });
+
+  it('accepts status pendente with a non-blank nf', () => {
+    const result = returnCreateSchema.parse({
+      supplier_id: '123e4567-e89b-12d3-a456-426614174000',
+      type: 'avaria',
+      qtd: 1,
+      valor_unitario: 1,
+      status: 'pendente',
+      nf: '1001',
+    });
+    expect(result.nf).toBe('1001');
+  });
 });
 
 describe('batchVendaSchema', () => {
