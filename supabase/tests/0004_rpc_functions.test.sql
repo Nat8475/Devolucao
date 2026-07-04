@@ -29,8 +29,11 @@ select throws_ok(
 -- fn_dar_baixa_venda: batch, only pendente rows affected
 insert into returns (supplier_id, type, qtd, valor_unitario, status, nf)
   select id, 'falta', 2, 3, 'pendente', '1002' from suppliers where name = 'Fornecedor RPC';
+-- rows can only be born rascunho/pendente (trg_returns_initial_status); insert
+-- as pendente and transition to em_transferencia, a valid move.
 insert into returns (supplier_id, type, qtd, valor_unitario, status, nf)
-  select id, 'falta', 2, 3, 'em_transferencia', '1003' from suppliers where name = 'Fornecedor RPC';
+  select id, 'falta', 2, 3, 'pendente', '1003' from suppliers where name = 'Fornecedor RPC';
+update returns set status = 'em_transferencia' where nf = '1003';
 
 select results_eq(
   $$ select fn_dar_baixa_venda(array(select id from returns where nf in ('1002','1003')))::text $$,
@@ -47,7 +50,8 @@ select is((select motivo_detalhe from returns where nf = '1002'), 'erro de digit
 
 -- fn_excluir: guarded to pendente only
 insert into returns (supplier_id, type, qtd, valor_unitario, status, nf)
-  select id, 'falta', 1, 1, 'venda', '1004' from suppliers where name = 'Fornecedor RPC';
+  select id, 'falta', 1, 1, 'pendente', '1004' from suppliers where name = 'Fornecedor RPC';
+update returns set status = 'venda' where nf = '1004';
 select throws_ok(
   $$ select fn_excluir(id, 'teste') from returns where nf = '1004' $$,
   'P0001', null,
