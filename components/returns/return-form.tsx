@@ -58,7 +58,10 @@ export function ReturnForm() {
 
   useEffect(() => {
     fetch('/api/suppliers')
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error('suppliers fetch failed');
+        return r.json();
+      })
       .then(setSuppliers)
       .catch(() => setFormError('Não foi possível carregar os fornecedores.'));
   }, []);
@@ -66,7 +69,10 @@ export function ReturnForm() {
   useEffect(() => {
     if (!form.supplier_id) return;
     fetch(`/api/return-reasons?supplier_id=${form.supplier_id}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error('reasons fetch failed');
+        return r.json();
+      })
       .then(setReasons)
       .catch(() => setFormError('Não foi possível carregar os motivos.'));
   }, [form.supplier_id]);
@@ -87,7 +93,10 @@ export function ReturnForm() {
       try {
         check = await fetch(
           `/api/returns/check-duplicate?nf=${encodeURIComponent(form.nf)}&supplier_id=${form.supplier_id}`
-        ).then((r) => r.json());
+        ).then((r) => {
+          if (!r.ok) throw new Error('duplicate check failed');
+          return r.json();
+        });
       } catch {
         setSubmitting(null);
         setFormError('Não foi possível verificar duplicidade da NF. Tente novamente.');
@@ -122,8 +131,14 @@ export function ReturnForm() {
       });
 
       if (!res.ok) {
-        const body = await res.json();
-        setFormError(body.error);
+        let message = 'Erro ao salvar. Tente novamente.';
+        try {
+          const body = await res.json();
+          if (typeof body?.error === 'string') message = body.error;
+        } catch {
+          // resposta não-JSON: mantém a mensagem genérica
+        }
+        setFormError(message);
         return;
       }
 
