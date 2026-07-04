@@ -1,0 +1,39 @@
+name: Backup
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 03:00 America/Sao_Paulo (UTC-3, no DST)
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump, compress, encrypt
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          STAMP=$(TZ='America/Sao_Paulo' date +%Y-%m-%d)
+          pg_dump "$SUPABASE_DB_URL" --no-owner --format=plain \
+            | gzip \
+            | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:PASSPHRASE \
+            > "backup-$STAMP.sql.gz.enc"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: Upload to R2 (daily/weekly/monthly tiers)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          FILE="backup-$STAMP.sql.gz.enc"
+          aws s3 cp "$FILE" "s3://returns-backups/daily/$FILE" --endpoint-url "$ENDPOINT"
+          DOW=$(TZ='America/Sao_Paulo' date +%u)   # 1=Monday
+          DOM=$(TZ='America/Sao_Paulo' date +%d)
+          if [ "$DOW" = "7" ]; then
+            aws s3 cp "$FILE" "s3://returns-backups/weekly/$FILE" --endpoint-url "$ENDPOINT"
+          fi
+          if [ "$DOM" = "01" ]; then
+            aws s3 cp "$FILE" "s3://returns-backups/monthly/$FILE" --endpoint-url "$ENDPOINT"
+          fi
