@@ -54,19 +54,11 @@ export function ReturnsTable() {
   }, [statusFilter]);
 
   useEffect(() => {
-    fetch(returnsUrl(statusFilter))
-      .then((res) => {
-        if (!res.ok) throw new Error('returns fetch failed');
-        return res.json();
-      })
-      .then((data) => {
-        setReturns(data);
-        setSelected(new Set());
-        setLoadError(null);
-      })
-      .catch(() => setLoadError('Não foi possível carregar as devoluções. Tente novamente.'))
-      .finally(() => setLoading(false));
-  }, [statusFilter]);
+    // Carga inicial + recarga ao trocar o filtro; `reload` é async (não seta estado
+    // sincronicamente), o lint não distingue isso.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload();
+  }, [reload]);
 
   function toggle(id: string) {
     setSelected((prev) => {
