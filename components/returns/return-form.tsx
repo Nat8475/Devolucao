@@ -10,6 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { XmlUpload } from './xml-upload';
 import { DuplicateWarningDialog } from './duplicate-warning-dialog';
+import { DanfeScanInput } from './danfe-scan-input';
+import { DanfeScanCameraDialog } from './danfe-scan-camera-dialog';
 import type { Supplier, ReturnReason, ReturnType } from '@/lib/types';
 
 interface FormState {
@@ -55,6 +57,8 @@ export function ReturnForm() {
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<'rascunho' | 'pendente' | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [scanWarning, setScanWarning] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/suppliers')
@@ -79,6 +83,31 @@ export function ReturnForm() {
 
   function applyParsedXml(nf: string, descricao: string, qtd: number, valorUnitario: number) {
     setForm((f) => ({ ...f, nf, descricao, qtd: String(qtd), valor_unitario: String(valorUnitario) }));
+  }
+
+  async function handleScan({ cnpjEmitente, nNF }: { cnpjEmitente: string; nNF: string }) {
+    setScanWarning(null);
+    let matches: Supplier[] = [];
+    try {
+      matches = await fetch(`/api/suppliers?cnpj=${cnpjEmitente}`).then((r) => {
+        if (!r.ok) throw new Error('suppliers fetch failed');
+        return r.json();
+      });
+    } catch {
+      setScanWarning('Não foi possível verificar o fornecedor. Preencha manualmente.');
+      setForm((f) => ({ ...f, nf: nNF }));
+      return;
+    }
+
+    setForm((f) => ({
+      ...f,
+      nf: nNF,
+      supplier_id: matches[0]?.id ?? f.supplier_id,
+    }));
+
+    if (matches.length === 0) {
+      setScanWarning('CNPJ não cadastrado — selecione o fornecedor manualmente.');
+    }
   }
 
   async function submit(status: 'rascunho' | 'pendente') {
@@ -156,6 +185,30 @@ export function ReturnForm() {
     <Card className="max-w-xl">
       <CardContent className="space-y-4">
         <XmlUpload onParsed={(p) => applyParsedXml(p.nf, p.descricao, p.qtd, p.valorUnitario)} />
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <DanfeScanInput onScan={handleScan} />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={() => setShowCamera(true)}
+          >
+            Escanear com câmera
+          </Button>
+        </div>
+        {scanWarning && (
+          <p role="alert" className="text-sm text-amber-600 dark:text-amber-500">
+            {scanWarning}
+          </p>
+        )}
+        <DanfeScanCameraDialog
+          open={showCamera}
+          onClose={() => setShowCamera(false)}
+          onScan={handleScan}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="nf">NF</Label>
