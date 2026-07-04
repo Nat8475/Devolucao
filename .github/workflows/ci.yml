@@ -24,7 +24,12 @@ jobs:
 
       - run: supabase start
 
-      - run: cp .env.local.example .env.local
+      - name: Create .env.local from local Supabase
+        run: >
+          supabase status -o env
+          --override-name api.url=NEXT_PUBLIC_SUPABASE_URL
+          --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY
+          > .env.local
 
       - run: npm run test:db
 
