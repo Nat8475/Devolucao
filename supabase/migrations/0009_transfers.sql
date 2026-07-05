@@ -34,6 +34,12 @@ create index idx_transfers_lote on transfers (lote_id);
 create index idx_transfers_return on transfers (return_id);
 create index idx_transfers_status_scheduled on transfers (status, scheduled_date);
 
+-- Um return só pode ter UMA transferência ativa por vez; linhas históricas
+-- (concluida/cancelada) podem se acumular — cancelar e reprogramar é fluxo
+-- legítimo. Guard estrutural além do CAS de returns.status nas RPCs (0010).
+create unique index uq_transfers_active_return on transfers (return_id)
+  where status = 'em_transferencia';
+
 alter table transfers enable row level security;
 
 -- PLACEHOLDER RLS (Fase 4 will replace) — same pattern as 0005/0008.

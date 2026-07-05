@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(12);
 
 select has_table('transfers');
 select col_not_null('transfers', 'return_id');
@@ -42,6 +42,21 @@ select throws_ok($$
   values ('00000000-0000-0000-0000-00000000d001', gen_random_uuid(), 'filial',
           '00000000-0000-0000-0000-00000000b001', current_date, 'gratis')
 $$, '23514', null, 'invalid freight_type rejected');
+
+-- segunda transferência ATIVA pro mesmo return -> rejeita (unique parcial)
+select throws_ok($$
+  insert into transfers (return_id, lote_id, destination_type, branch_id, scheduled_date)
+  values ('00000000-0000-0000-0000-00000000d001', gen_random_uuid(), 'filial',
+          '00000000-0000-0000-0000-00000000b001', current_date)
+$$, '23505', null, 'second active transfer for same return rejected');
+
+-- mas com a ativa cancelada, nova ativa é permitida (histórico ok)
+update transfers set status = 'cancelada' where return_id = '00000000-0000-0000-0000-00000000d001';
+select lives_ok($$
+  insert into transfers (return_id, lote_id, destination_type, branch_id, scheduled_date)
+  values ('00000000-0000-0000-0000-00000000d001', gen_random_uuid(), 'filial',
+          '00000000-0000-0000-0000-00000000b001', current_date)
+$$, 'new active transfer allowed after previous cancelled');
 
 select * from finish();
 rollback;
