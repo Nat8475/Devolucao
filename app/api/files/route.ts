@@ -33,6 +33,11 @@ export async function POST(request: NextRequest) {
   const entityId = entityIdRaw ? String(entityIdRaw) : null;
   if (entityType !== 'system' && !entityId)
     return NextResponse.json({ error: 'entity_id é obrigatório fora de system' }, { status: 400 });
+  // valida formato ANTES do upload — insert com uuid inválido falharia depois
+  // do PUT e deixaria objeto órfão no R2
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (entityId && !UUID_RE.test(entityId))
+    return NextResponse.json({ error: 'entity_id deve ser um uuid' }, { status: 400 });
 
   const safeName = (file.name || 'arquivo').replace(/[^\w.\-]+/g, '_').slice(0, 120);
   const key = `${entityType}/${entityId ?? 'system'}/${crypto.randomUUID()}-${safeName}`;
