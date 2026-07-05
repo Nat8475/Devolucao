@@ -63,7 +63,7 @@ com destino para uma filial ou direto para um endereço de fornecedor.
 Além das variáveis do Supabase já usadas na Fase 1:
 
 - `R2_*` (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
-  `R2_BUCKET_NAME`) — opcionais. Habilitam upload de arquivos (comprovante de
+  `R2_BUCKET`) — opcionais. Habilitam upload de arquivos (comprovante de
   baixa, assinatura, logo da etiqueta) via Cloudflare R2. Sem elas, os
   endpoints de arquivo respondem `503` e a UI esconde os campos de upload
   (a baixa de transferência continua funcionando normalmente, só sem anexos).
