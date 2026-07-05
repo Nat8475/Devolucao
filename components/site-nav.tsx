@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 
 const LINKS = [
   { href: '/returns', label: 'Devoluções' },
+  { href: '/transfers', label: 'Transferências' },
   { href: '/returns/new', label: 'Lançamento' },
   { href: '/trash', label: 'Lixeira' },
   { href: '/settings/suppliers', label: 'Configurações' },
