@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(23);
 
 -- seed
 insert into suppliers (id, name) values ('00000000-0000-0000-0000-0000000a0001', 'F RPC');
@@ -11,12 +11,15 @@ insert into returns (id, nf, supplier_id, type, qtd, valor_unitario, status) val
   ('00000000-0000-0000-0000-0000000d0001', '101', '00000000-0000-0000-0000-0000000a0001', 'avaria', 1, 10, 'pendente'),
   ('00000000-0000-0000-0000-0000000d0002', '102', '00000000-0000-0000-0000-0000000a0001', 'avaria', 1, 10, 'pendente'),
   ('00000000-0000-0000-0000-0000000d0003', '103', '00000000-0000-0000-0000-0000000a0001', 'avaria', 1, 10, 'pendente'),
-  ('00000000-0000-0000-0000-0000000d0004', '104', '00000000-0000-0000-0000-0000000a0002', 'avaria', 1, 10, 'pendente');
+  ('00000000-0000-0000-0000-0000000d0004', '104', '00000000-0000-0000-0000-0000000a0002', 'avaria', 1, 10, 'pendente'),
+  ('00000000-0000-0000-0000-0000000d0005', '105', '00000000-0000-0000-0000-0000000a0002', 'avaria', 1, 10, 'pendente');
 
 -- d0003 needs to be 'venda' to prove programar ignores non-pendente rows;
 -- the initial-status trigger (0007) only allows rascunho/pendente on INSERT,
 -- so it must reach 'venda' via a valid transition (pendente -> venda).
 update returns set status = 'venda' where id = '00000000-0000-0000-0000-0000000d0003';
+-- d0005 also needs to be non-pendente to test guard scope (only checks eligible rows)
+update returns set status = 'venda' where id = '00000000-0000-0000-0000-0000000d0005';
 
 -- 1) programar: 2 pendentes + 1 venda -> afeta só os 2, cria 2 transfers no mesmo lote
 select ok(
@@ -52,6 +55,15 @@ select throws_ok($$
     'fornecedor', null, '00000000-0000-0000-0000-0000000c0001',
     null, null, null, null, current_date)
 $$, 'P0001', null, 'address of another supplier rejected');
+
+-- guard scope: check only eligible rows. d0005 (venda + wrong supplier) should NOT
+-- trigger the supplier guard; instead it raises "nenhuma devolução elegível (pendente)"
+select throws_ok($$
+  select * from fn_programar_transferencia(
+    array['00000000-0000-0000-0000-0000000d0005']::uuid[],
+    'fornecedor', null, '00000000-0000-0000-0000-0000000c0001',
+    null, null, null, null, current_date)
+$$, 'P0001', 'nenhuma devolução elegível (pendente) entre as selecionadas', 'non-pendente mismatched row does not trigger supplier guard');
 
 -- 3) chegada: flag off -> recusa
 select throws_ok($$
@@ -91,6 +103,18 @@ select is(
 select ok(
   (select resolved_at is not null from returns where id = '00000000-0000-0000-0000-0000000d0002'),
   'resolved_at stamped by baixa');
+
+-- 4a) fn_reabrir limpa responsible_branch_id quando volta a pendente
+-- d0002 é devolvido com responsible_branch_id já setado da chegada
+select * from fn_reabrir(array['00000000-0000-0000-0000-0000000d0002']::uuid[], 'teste reabertura');
+
+select is(
+  (select status from returns where id = '00000000-0000-0000-0000-0000000d0002'),
+  'pendente', 'fn_reabrir volta a pendente');
+
+select ok(
+  (select responsible_branch_id is null from returns where id = '00000000-0000-0000-0000-0000000d0002'),
+  'fn_reabrir limpa responsible_branch_id');
 
 -- baixa de lote já concluído -> erro (nada elegível)
 select throws_ok($$

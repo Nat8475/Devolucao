@@ -62,11 +62,13 @@ begin
   end if;
 
   -- endereço de fornecedor precisa pertencer ao fornecedor de TODAS as NFs
-  -- selecionadas (a UI já filtra o dropdown, mas o banco não confia na UI)
+  -- elegíveis (pendente + não deletadas). Linhas não elegíveis são ignoradas.
+  -- (a UI já filtra o dropdown, mas o banco não confia na UI)
   if p_destination_type = 'fornecedor' then
     if exists (
       select 1 from returns r
       where r.id = any(p_return_ids)
+        and r.status = 'pendente' and r.deleted_at is null
         and r.supplier_id <> (select sa.supplier_id from supplier_addresses sa where sa.id = p_supplier_address_id)
     ) then
       raise exception 'endereço de devolução não pertence ao fornecedor das NFs selecionadas';
