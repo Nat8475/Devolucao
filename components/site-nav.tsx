@@ -17,6 +17,11 @@ function isLinkActive(pathname: string, href: string): boolean {
   if (href === '/returns') {
     return pathname === '/returns' || (/^\/returns\/[^/]+$/.test(pathname) && pathname !== '/returns/new');
   }
+  // 'Configurações' aponta pra /settings/suppliers mas cobre toda a seção
+  // /settings/* (branches, features, ...) — o sub-nav interno diferencia.
+  if (href === '/settings/suppliers') {
+    return pathname === '/settings' || pathname.startsWith('/settings/');
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
