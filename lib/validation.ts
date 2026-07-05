@@ -57,7 +57,7 @@ export const excluirSchema = z.object({
 const dateYmd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'data deve ser YYYY-MM-DD');
 
 export const branchSchema = z.object({
-  name: z.string().min(1, 'name é obrigatório'),
+  name: z.string().trim().min(1, 'name é obrigatório'),
   address: z.string().nullable().optional(),
   active: z.boolean().optional().default(true),
 });
@@ -66,7 +66,7 @@ export const branchPatchSchema = branchSchema.partial();
 
 export const supplierAddressSchema = z.object({
   supplier_id: z.string().uuid(),
-  label: z.string().min(1, 'label é obrigatório'),
+  label: z.string().trim().min(1, 'label é obrigatório'),
   city: z.string().nullable().optional(),
   uf: z.string().max(2).nullable().optional(),
   address: z.string().nullable().optional(),
