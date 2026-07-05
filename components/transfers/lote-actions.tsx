@@ -276,7 +276,7 @@ export function LoteActions({
               {r2Configured && flagOn('assinatura_baixa') && (
                 <div className="space-y-1.5">
                   <Label>Assinatura</Label>
-                  <SignaturePad onCapture={setSignatureBlob} />
+                  <SignaturePad onCapture={setSignatureBlob} onClear={() => setSignatureBlob(null)} />
                 </div>
               )}
               {baixaError && (

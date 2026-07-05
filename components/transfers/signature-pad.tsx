@@ -14,9 +14,11 @@ const HEIGHT_PX = 160;
  */
 export function SignaturePad({
   onCapture,
+  onClear,
   disabled = false,
 }: {
   onCapture: (blob: Blob) => void;
+  onClear?: () => void;
   disabled?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -97,6 +99,7 @@ export function SignaturePad({
   function handleClear() {
     hasDrawnRef.current = false;
     setupCanvas();
+    onClear?.();
   }
 
   return (
