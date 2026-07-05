@@ -34,11 +34,20 @@ export function TransferFormDialog({
   onOpenChange,
   selectedReturns,
   onSuccess,
+  initialDestinationType,
+  initialSupplierAddressId,
+  restrictSupplierAddressIds,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedReturns: ReturnRecord[];
   onSuccess: (result: { lote_id: string; affected: string[]; ignored: string[] }) => void;
+  /** Pré-seleção opcional (ex.: sugestão de rota — Task 14). Não afeta o fluxo padrão (Task 11). */
+  initialDestinationType?: DestinationType;
+  /** Endereço do fornecedor a pré-selecionar quando o destino sugerido é único. */
+  initialSupplierAddressId?: string;
+  /** Restringe o dropdown de endereços a este subconjunto (ex.: apenas os endereços do grupo/rota). */
+  restrictSupplierAddressIds?: string[];
 }) {
   const [step, setStep] = useState<Step>('previa');
   const [destinationType, setDestinationType] = useState<DestinationType>('filial');
@@ -65,9 +74,9 @@ export function TransferFormDialog({
     if (!open) return;
     // Reseta o formulário sempre que o diálogo abre para uma nova seleção.
     setStep('previa');
-    setDestinationType('filial');
+    setDestinationType(initialDestinationType ?? 'filial');
     setBranchId('');
-    setSupplierAddressId('');
+    setSupplierAddressId(initialSupplierAddressId ?? '');
     setCarrier('');
     setNumeroPedido('');
     setFreightType('tabela');
@@ -75,6 +84,7 @@ export function TransferFormDialog({
     setScheduledDate(tomorrowYmd());
     setError(null);
     setResult(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -92,8 +102,16 @@ export function TransferFormDialog({
     }
     fetch(`/api/supplier-addresses?supplier_id=${uniqueSupplierId}&active=true`)
       .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setAddresses(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const list: SupplierAddress[] = Array.isArray(data) ? data : [];
+        setAddresses(
+          restrictSupplierAddressIds
+            ? list.filter((a) => restrictSupplierAddressIds.includes(a.id))
+            : list
+        );
+      })
       .catch(() => setAddresses([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, destinationType, uniqueSupplierId]);
 
   function close() {
