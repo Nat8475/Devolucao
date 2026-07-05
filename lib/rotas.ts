@@ -7,7 +7,7 @@ export interface RotaGroup {
   returns: ReturnRecord[];
 }
 
-const SEM_ENDERECO = 'Sem endereço cadastrado';
+export const SEM_ENDERECO = 'Sem endereço cadastrado';
 
 // MVP da roteirização (plano v4.1 seção 4): agrupamento por cidade/UF do
 // endereço de devolução. Fornecedor com endereços em duas cidades aparece

@@ -5,12 +5,10 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TransferFormDialog } from '@/components/transfers/transfer-form-dialog';
-import type { RotaGroup } from '@/lib/rotas';
+import { SEM_ENDERECO, type RotaGroup } from '@/lib/rotas';
 import type { ReturnRecord, Supplier } from '@/lib/types';
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-
-const SEM_ENDERECO = 'Sem endereço cadastrado';
 
 interface DialogContext {
   group: RotaGroup;
