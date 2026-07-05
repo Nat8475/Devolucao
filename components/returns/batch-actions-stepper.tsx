@@ -4,16 +4,20 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { TransferFormDialog } from '@/components/transfers/transfer-form-dialog';
+import type { ReturnRecord } from '@/lib/types';
 
 type Step = 'previa' | 'confirmacao';
 
 export function BatchActionsStepper({
   action,
   selectedIds,
+  selectedReturns,
   onDone,
 }: {
-  action: 'venda' | 'reabrir';
+  action: 'venda' | 'reabrir' | 'transferencia';
   selectedIds: string[];
+  selectedReturns?: ReturnRecord[];
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -22,6 +26,29 @@ export function BatchActionsStepper({
   const [result, setResult] = useState<{ affected: string[]; ignored: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+
+  if (action === 'transferencia') {
+    const returns = selectedReturns ?? [];
+    const hasPendente = returns.some((r) => r.status === 'pendente');
+    return (
+      <>
+        <Button
+          variant="outline"
+          className="cursor-pointer"
+          disabled={!hasPendente}
+          onClick={() => setOpen(true)}
+        >
+          Programar transferência
+        </Button>
+        <TransferFormDialog
+          open={open}
+          onOpenChange={setOpen}
+          selectedReturns={returns}
+          onSuccess={() => onDone()}
+        />
+      </>
+    );
+  }
 
   function start() {
     setStep('previa');
