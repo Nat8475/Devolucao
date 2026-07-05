@@ -116,6 +116,11 @@ export default function ReturnDetailPage() {
         <h1 className="text-2xl font-semibold">NF {record.nf ?? '(sem NF)'}</h1>
         <Badge variant={STATUS_BADGE_VARIANT[record.status]}>{STATUS_LABELS[record.status]}</Badge>
       </div>
+      <Button variant="outline" className="cursor-pointer" asChild>
+        <Link href={`/returns/${id}/etiqueta`} target="_blank" rel="noopener noreferrer">
+          Imprimir etiqueta
+        </Link>
+      </Button>
       <dl className="grid grid-cols-2 gap-2 text-sm">
         <dt className="text-muted-foreground">NFD</dt>
         <dd>{record.nfd ?? '—'}</dd>
