@@ -62,6 +62,7 @@ export function ReturnsTable() {
   }
 
   const allSelected = returns.length > 0 && selected.size === returns.length;
+  const selectedReturns = returns.filter((r) => selected.has(r.id));
 
   return (
     <div className="space-y-4">
@@ -81,6 +82,12 @@ export function ReturnsTable() {
         </Select>
 
         <div className="flex gap-2">
+          <BatchActionsStepper
+            action="transferencia"
+            selectedIds={[...selected]}
+            selectedReturns={selectedReturns}
+            onDone={reload}
+          />
           <BatchActionsStepper action="venda" selectedIds={[...selected]} onDone={reload} />
           <BatchActionsStepper action="reabrir" selectedIds={[...selected]} onDone={reload} />
         </div>

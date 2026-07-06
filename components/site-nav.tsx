@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 
 const LINKS = [
   { href: '/returns', label: 'Devoluções' },
+  { href: '/transfers', label: 'Transferências' },
   { href: '/returns/new', label: 'Lançamento' },
   { href: '/trash', label: 'Lixeira' },
   { href: '/settings/suppliers', label: 'Configurações' },
@@ -16,6 +17,11 @@ const LINKS = [
 function isLinkActive(pathname: string, href: string): boolean {
   if (href === '/returns') {
     return pathname === '/returns' || (/^\/returns\/[^/]+$/.test(pathname) && pathname !== '/returns/new');
+  }
+  // 'Configurações' aponta pra /settings/suppliers mas cobre toda a seção
+  // /settings/* (branches, features, ...) — o sub-nav interno diferencia.
+  if (href === '/settings/suppliers') {
+    return pathname === '/settings' || pathname.startsWith('/settings/');
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }

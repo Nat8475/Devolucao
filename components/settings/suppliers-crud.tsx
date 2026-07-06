@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from '@/components/ui/table';
+import { SupplierAddressesPanel } from '@/components/settings/supplier-addresses-panel';
 import type { Supplier } from '@/lib/types';
 
 export function SuppliersCrud() {
@@ -14,6 +15,7 @@ export function SuppliersCrud() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -94,22 +96,46 @@ export function SuppliersCrud() {
           <TableRow>
             <TableHead>Nome</TableHead>
             <TableHead>CNPJ</TableHead>
+            <TableHead className="text-right">Ações</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {!loading && suppliers.length === 0 && !loadError && (
             <TableRow>
-              <TableCell colSpan={2} className="py-6 text-center text-sm text-muted-foreground">
+              <TableCell colSpan={3} className="py-6 text-center text-sm text-muted-foreground">
                 Nenhum fornecedor cadastrado.
               </TableCell>
             </TableRow>
           )}
-          {suppliers.map((s) => (
-            <TableRow key={s.id}>
-              <TableCell>{s.name}</TableCell>
-              <TableCell>{s.cnpj ?? '—'}</TableCell>
-            </TableRow>
-          ))}
+          {suppliers.map((s) => {
+            const isExpanded = expandedId === s.id;
+            return (
+              <Fragment key={s.id}>
+                <TableRow>
+                  <TableCell className="font-medium">{s.name}</TableCell>
+                  <TableCell>{s.cnpj ?? '—'}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="cursor-pointer"
+                      aria-expanded={isExpanded}
+                      onClick={() => setExpandedId(isExpanded ? null : s.id)}
+                    >
+                      {isExpanded ? 'Ocultar endereços' : 'Endereços'}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+                {isExpanded && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="bg-background/50 py-3">
+                      <SupplierAddressesPanel supplierId={s.id} />
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
