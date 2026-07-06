@@ -239,8 +239,9 @@ function ResponsaveisDialog({ branch, onClose }: { branch: Branch | null; onClos
 
   useEffect(() => {
     if (branch) {
-      setSelectedUserId('');
+      // reset ao trocar de filial — padrão reset-on-prop-change
       // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedUserId('');
       void load(branch.id);
     }
   }, [branch, load]);

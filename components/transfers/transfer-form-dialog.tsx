@@ -72,7 +72,9 @@ export function TransferFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    // Reseta o formulário sempre que o diálogo abre para uma nova seleção.
+    // Reseta o formulário sempre que o diálogo abre para uma nova seleção
+    // (padrão reset-on-open; roda uma vez por abertura, não em cascata).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStep('previa');
     setDestinationType(initialDestinationType ?? 'filial');
     setBranchId('');
@@ -97,6 +99,7 @@ export function TransferFormDialog({
 
   useEffect(() => {
     if (!open || destinationType !== 'fornecedor' || !uniqueSupplierId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAddresses([]);
       return;
     }

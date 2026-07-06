@@ -52,7 +52,6 @@ export function SignaturePad({
     }
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function pointFromEvent(e: React.PointerEvent<HTMLCanvasElement>) {
